@@ -94,4 +94,4 @@ Any generic BLE scanner app (e.g., nRF Connect) can be used to receive notificat
 ---
 
 ## 📜 License
-This project is licensed under the MIT License.
+This project is licensed under the MIT License..
