@@ -1,127 +1,86 @@
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
-
-#define TRIG_PIN 17
-#define ECHO_PIN 16
-#define BUZZER_PIN 26
-
-// BLE UUIDs
-#define SERVICE_UUID        "12345678-1234-1234-1234-1234567890ab"
-#define CHARACTERISTIC_UUID "abcdefab-1234-5678-1234-abcdefabcdef"
-
-BLECharacteristic *pCharacteristic;
-bool deviceConnected = false;
+// ---------- PIN DEFINITIONS ----------
+#define TRIG_PIN    17
+#define ECHO_PIN    16
+#define BUZZER_PIN  26
 
 long duration;
 float distance;
 
-// -------- BLE CALLBACK --------
-class MyServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) {
-    deviceConnected = true;
-  }
-
-  void onDisconnect(BLEServer* pServer) {
-    deviceConnected = false;
-  }
-};
-
-// -------- DISTANCE FUNCTION --------
+// ---------- ULTRASONIC FUNCTION ----------
 float getDistance() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
+
   digitalWrite(TRIG_PIN, HIGH);
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
 
-  duration = pulseIn(ECHO_PIN, HIGH, 30000); // timeout 30ms
+  duration = pulseIn(ECHO_PIN, HIGH, 30000); // 30ms timeout
+
   if (duration == 0) return -1;
 
-  return (duration * 0.034) / 2; // cm
+  return (duration * 0.034) / 2;
 }
 
-// -------- BUZZER CONTROL --------
-unsigned long lastToggle = 0;
-bool buzzerState = false;
-
-void buzzerPattern(int interval) {
-  if (interval == 0) {              // continuous ON
+// ---------- BUZZER FUNCTION ----------
+void beep(int times, int onTime, int offTime) {
+  for (int i = 0; i < times; i++) {
     digitalWrite(BUZZER_PIN, HIGH);
-    return;
-  }
-
-  if (millis() - lastToggle >= interval) {
-    buzzerState = !buzzerState;
-    digitalWrite(BUZZER_PIN, buzzerState);
-    lastToggle = millis();
+    delay(onTime);
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(offTime);
   }
 }
 
-// -------- SETUP --------
+// ---------- SETUP ----------
 void setup() {
   Serial.begin(115200);
 
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
+
   digitalWrite(BUZZER_PIN, LOW);
-
-  BLEDevice::init("Smart_Cap");
-  BLEServer *pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallbacks());
-
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-
-  pCharacteristic = pService->createCharacteristic(
-                      CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_NOTIFY
-                    );
-
-  pCharacteristic->addDescriptor(new BLE2902());
-  pService->start();
-
-  BLEDevice::getAdvertising()->start();
-  Serial.println("Smart Cap BLE Ready");
 }
 
-// -------- LOOP --------
-String lastMessage = "";
-
+// ---------- LOOP ----------
 void loop() {
+
   distance = getDistance();
 
-  String message = "";
+  Serial.print("Distance: ");
+  Serial.println(distance);
 
   if (distance < 0) {
     digitalWrite(BUZZER_PIN, LOW);
-    message = "No obstacle detected";
   }
+
+  // 🔴 0 – 50 cm → Continuous beep
   else if (distance <= 50) {
-    message = "Danger: Obstacle very close";
-    buzzerPattern(0);        // continuous
+    Serial.println("Very Close - Continuous Beep");
+    digitalWrite(BUZZER_PIN, HIGH);
   }
-  else if (distance <= 100) {
-    message = "Warning: Obstacle closer";
-    buzzerPattern(200);      // fast beep
+   // 🔴 50 – 100 cm → 3 Beeps
+  else if (distance > 50 && distance <= 100) {
+    Serial.println("Medium Distance - 3 Beeps");
+    beep(3, 200, 250);
   }
-  else if (distance <= 150) {
-    message = "Obstacle detected nearby";
-    buzzerPattern(600);      // slow beep
+
+  // 🟠 100 – 150 cm → 2 Beeps
+  else if (distance > 100 && distance <= 150) {
+    Serial.println("Medium Distance - 3 Beeps");
+    beep(2, 200, 250);
   }
+
+  // 🟡 150 – 300 cm → 1 Beeps
+  else if (distance > 150 && distance <= 300) {
+    Serial.println("Far Distance - 2 Beeps");
+    beep(1, 200, 250);
+  }
+
   else {
     digitalWrite(BUZZER_PIN, LOW);
-    message = "Path clear";
   }
 
-  // Send BLE notification ONLY if connected and message changed
-  if (deviceConnected && message != lastMessage) {
-    pCharacteristic->setValue(message.c_str());
-    pCharacteristic->notify();
-    Serial.println(message);
-    lastMessage = message;
-  }
-
-  delay(100); // small stability delay
+  delay(400);
 }
